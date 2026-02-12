@@ -1,0 +1,346 @@
+from flask import Flask, jsonify, request, render_template_string
+import feedparser
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote_plus, urlparse
+
+try:
+	import tldextract
+except Exception:
+	tldextract = None
+
+APP_DIR = os.path.dirname(__file__)
+DATA_FILE = os.path.join(APP_DIR, "news.json")
+
+app = Flask(__name__)
+
+TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Stablecoin Regulatory News — Last 24h</title>
+	<style>
+	  body { font-family: Arial, Helvetica, sans-serif; margin: 24px; }
+	  .item { padding: 12px 0; border-bottom: 1px solid #eee; }
+	  .meta { color: #666; font-size: 0.9em; }
+	</style>
+  </head>
+  <body>
+	<h1>Stablecoin Regulatory News — Last 24 hours</h1>
+	<p><a href="/fetch">Run fetch now</a> · <a href="/api/news">JSON API</a> · <a href="/news-table">Table View</a></p>
+	{% if items %}
+	  {% for it in items %}
+		<div class="item">
+		  <div class="meta"><strong>{{ it.country }}</strong> · {{ it.published }}</div>
+		  <div class="title"><a href="{{ it.link }}" target="_blank" rel="noopener">{{ it.title }}</a></div>
+		</div>
+	  {% endfor %}
+	{% else %}
+	  <p>No items found for the last 24 hours.</p>
+	{% endif %}
+  </body>
+</html>
+"""
+
+TABLE_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Stablecoin Regulatory News — Table View</title>
+	<style>
+	  body { 
+		font-family: Arial, Helvetica, sans-serif; 
+		margin: 24px; 
+		background-color: #f5f5f5;
+	  }
+	  h1 { color: #333; }
+	  .controls { margin-bottom: 20px; }
+	  .controls a { 
+		display: inline-block;
+		padding: 8px 16px; 
+		background-color: #0066cc; 
+		color: white; 
+		text-decoration: none; 
+		border-radius: 4px;
+		margin-right: 10px;
+	  }
+	  .controls a:hover { background-color: #0052a3; }
+	  table {
+		width: 100%;
+		border-collapse: collapse;
+		background-color: white;
+		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		border-radius: 4px;
+		overflow: hidden;
+	  }
+	  thead {
+		background-color: #0066cc;
+		color: white;
+	  }
+	  th {
+		padding: 12px 16px;
+		text-align: left;
+		font-weight: bold;
+		border-bottom: 2px solid #0066cc;
+	  }
+	  td {
+		padding: 12px 16px;
+		border-bottom: 1px solid #eee;
+	  }
+	  tr:hover {
+		background-color: #f9f9f9;
+	  }
+	  .country {
+		font-weight: bold;
+		color: #0066cc;
+		background-color: #e6f2ff;
+		padding: 4px 8px;
+		border-radius: 3px;
+		display: inline-block;
+	  }
+	  .published {
+		color: #666;
+		font-size: 0.9em;
+	  }
+	  .title-link {
+		color: #0066cc;
+		text-decoration: none;
+		font-weight: 500;
+	  }
+	  .title-link:hover {
+		text-decoration: underline;
+	  }
+	  .no-items {
+		padding: 40px;
+		text-align: center;
+		color: #999;
+		background-color: white;
+		border-radius: 4px;
+	  }
+	  .item-count {
+		color: #666;
+		margin-bottom: 20px;
+		font-size: 0.95em;
+	  }
+	</style>
+  </head>
+  <body>
+	<h1>Stablecoin Regulatory News — Table View</h1>
+	<div class="controls">
+	  <a href="/">Home</a>
+	  <a href="/fetch">Run Fetch</a>
+	  <a href="/api/news">JSON API</a>
+	</div>
+	
+	{% if items %}
+	  <div class="item-count">Showing <strong>{{ items|length }}</strong> items from the last 24 hours</div>
+	  <table>
+		<thead>
+		  <tr>
+			<th style="width: 12%;">Country</th>
+			<th style="width: 50%;">Title</th>
+			<th style="width: 20%;">Published</th>
+			<th style="width: 18%;">Source</th>
+		  </tr>
+		</thead>
+		<tbody>
+		  {% for item in items %}
+			<tr>
+			  <td>
+				<span class="country">{{ item.country }}</span>
+			  </td>
+			  <td>
+				<a href="{{ item.link }}" target="_blank" rel="noopener" class="title-link">
+				  {{ item.title }}
+				</a>
+			  </td>
+			  <td>
+				<span class="published">{{ item.published[:10] }}</span>
+			  </td>
+			  <td>
+				<small>{{ item.link[:40] }}...</small>
+			  </td>
+			</tr>
+		  {% endfor %}
+		</tbody>
+	  </table>
+	{% else %}
+	  <div class="no-items">
+		<p>No items found for the last 24 hours.</p>
+		<p><a href="/fetch" style="color: #0066cc;">Run fetch now</a> to get started.</p>
+	  </div>
+	{% endif %}
+  </body>
+</html>
+"""
+
+
+def _now_utc():
+	return datetime.now(timezone.utc)
+
+
+COUNTRIES = [
+	"United States", "US", "United Kingdom", "UK", "Canada", "Australia", "Singapore",
+	"Hong Kong", "China", "Japan", "South Korea", "Korea", "India", "Brazil", "Mexico",
+	"Germany", "France", "Italy", "Spain", "Netherlands", "Sweden", "Norway", "Switzerland",
+	"Russia", "Turkey", "Argentina", "Chile", "Colombia"
+]
+
+
+def detect_country(entry):
+	text = " ".join(filter(None, [entry.get("title", ""), entry.get("summary", "")]))
+	text_lower = text.lower()
+	for c in COUNTRIES:
+		if c.lower() in text_lower:
+			return c
+
+	link = entry.get("link", "")
+	if link:
+		if tldextract is not None:
+			try:
+				ext = tldextract.extract(link)
+				suffix = ext.suffix
+				if suffix and len(suffix) == 2:
+					return suffix.upper()
+			except Exception:
+				pass
+		else:
+			# fallback: try to parse hostname and take last label as country code (best-effort)
+			try:
+				h = urlparse(link).hostname or ""
+				parts = h.split('.')
+				if parts:
+					last = parts[-1]
+					if len(last) == 2:
+						return last.upper()
+			except Exception:
+				pass
+
+	return "Unknown"
+
+
+def fetch_google_news_rss(query, region="US"):
+	q = quote_plus(query)
+	url = f"https://news.google.com/rss/search?q={q}%20when:7d&hl=en-{region}&gl={region}&ceid={region}:en"
+	try:
+		return feedparser.parse(url)
+	except Exception:
+		return None
+
+
+def canonicalize_item(entry):
+	if "published_parsed" in entry and entry.published_parsed:
+		published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+
+	else:
+		published = _now_utc()
+
+	title = entry.get("title", "(no title)")
+	link = entry.get("link", "")
+	country = detect_country(entry)
+
+	return {
+		"country": country,
+		"title": title,
+		"published": published.isoformat(),
+		"link": link,
+	}
+
+
+def fetch_and_save():
+	queries = [
+		"stablecoin regulation",
+		"stablecoin announcement",
+		"stablecoin guidance",
+		"stablecoin law",
+		"stablecoin ban",
+		"stablecoin oversight",
+	]
+
+	items = []
+	seen_links = set()
+	now = _now_utc()
+	cutoff = now - timedelta(hours=24)
+
+	for q in queries:
+		feed = fetch_google_news_rss(q)
+		if not feed or not getattr(feed, "entries", None):
+			continue
+		for entry in feed.entries:
+			if hasattr(entry, "published_parsed") and entry.published_parsed:
+				published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+			else:
+				published = now
+
+			if published < cutoff:
+				continue
+
+			link = entry.get("link", "")
+			if not link or link in seen_links:
+				continue
+			seen_links.add(link)
+
+			item = canonicalize_item(entry)
+			items.append(item)
+
+	items.sort(key=lambda x: x.get("published", ""), reverse=True)
+
+	with open(DATA_FILE, "w", encoding="utf-8") as f:
+		json.dump(items, f, ensure_ascii=False, indent=2)
+
+	return items
+
+
+def load_news():
+	if not os.path.exists(DATA_FILE):
+		return []
+	with open(DATA_FILE, "r", encoding="utf-8") as f:
+		try:
+			return json.load(f)
+		except Exception:
+			return []
+
+
+@app.route("/")
+def index():
+	items = load_news()
+	return render_template_string(TEMPLATE, items=items)
+
+
+@app.route("/news-table")
+def news_table():
+	items = load_news()
+	return render_template_string(TABLE_TEMPLATE, items=items)
+
+
+@app.route("/api/news")
+def api_news():
+	items = load_news()
+	return jsonify(items)
+
+
+@app.route("/fetch")
+def manual_fetch_route():
+	items = fetch_and_save()
+	return jsonify({"fetched": len(items)})
+
+
+if __name__ == "__main__":
+	# ensure data file exists
+	if not os.path.exists(DATA_FILE):
+		with open(DATA_FILE, "w", encoding="utf-8") as f:
+			json.dump([], f)
+
+	# perform an initial fetch
+	try:
+		fetch_and_save()
+	except Exception:
+		pass
+
+	app.run(host="0.0.0.0", port=5000)
+
