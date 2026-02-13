@@ -6,7 +6,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus, urlparse
 import pandas as pd
-from flask import send_file
 from io import BytesIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -418,6 +417,7 @@ def download_excel():
         download_name="stablecoin_news.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 
 
