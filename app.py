@@ -2,11 +2,31 @@ from flask import Flask, jsonify, request, render_template_string
 import feedparser
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus, urlparse
 import pandas as pd
 from flask import send_file
 from io import BytesIO
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+def get_last_updated():
+    if CACHE["timestamp"] == 0:
+        return "Not fetched yet"
+
+    dt = datetime.fromtimestamp(
+        CACHE["timestamp"],
+        ZoneInfo("Asia/Seoul")  # since you're in Korea
+    )
+    return dt.strftime("%Y-%m-%d %H:%M:%S KST")
+
+CACHE = {
+    "data": None,
+    "timestamp": 0
+}
+
+CACHE_DURATION = 600  # seconds (10 minutes)
 
 try:
 	import tldextract
@@ -131,6 +151,11 @@ TABLE_TEMPLATE = """
   </head>
   <body>
 	<h1>Stablecoin Regulatory News — Table View</h1>
+
+	<div style="margin-bottom:15px; color:gray; font-size:14px;">
+    Last auto fetch: {{ last_updated }}
+</div>
+
 	<div class="controls">
 	  <a href="/">Home</a>
 	  <a href="/fetch">Run Fetch</a>
@@ -191,7 +216,6 @@ TABLE_TEMPLATE = """
 </html>
 """
 
-
 def _now_utc():
 	return datetime.now(timezone.utc)
 
@@ -203,7 +227,20 @@ COUNTRIES = [
 	"Russia", "Turkey", "Argentina", "Chile", "Colombia"
 ]
 
+def get_news():
+    now = time.time()
 
+    # if  exists and not expired
+   if CACHE["data"] and (now - CACHE["timestamp"] < CACHE_DURATION):
+        return CACHE["data"]
+
+    # otherwise fetch new data
+    data = fetch_news()
+    CACHE["data"] = data
+    CACHE["timestamp"] = now
+
+    return data
+	
 def detect_country(entry):
 	text = " ".join(filter(None, [entry.get("title", ""), entry.get("summary", "")]))
 	text_lower = text.lower()
@@ -305,16 +342,21 @@ def fetch_news():
 
 @app.route("/")
 def index():
-	items = fetch_news()
-	return render_template_string(TEMPLATE, items=items)
-
+	items = get_news()
+	return render_template_string(
+    TABLE_TEMPLATE,
+    items=paginated_items,
+    page=page,
+    total_pages=total_pages,
+    last_updated=get_last_updated()
+)
 
 @app.route("/news-table")
 def news_table():
     page = int(request.args.get("page", 1))
     per_page = 50
 
-    items = fetch_news()
+    items = get_news()
     total = len(items)
 
     start = (page - 1) * per_page
@@ -324,32 +366,32 @@ def news_table():
     total_pages = (total + per_page - 1) // per_page
 
     return render_template_string(
-        TABLE_TEMPLATE,
-        items=paginated_items,
-        page=page,
-        total_pages=total_pages
-    )
+    TABLE_TEMPLATE,
+    items=paginated_items,
+    page=page,
+    total_pages=total_pages,
+    last_updated=get_last_updated()
+)
 
 
 @app.route("/api/news")
 def api_news():
-	items = fetch_news()
+	items = get_news()
 	return jsonify(items)
 
 
 @app.route("/fetch")
-@app.route("/fetch")
 def manual_fetch_route():
+    data = fetch_news()
+
+    CACHE["data"] = data
+    CACHE["timestamp"] = time.time()
+
     page = 1
     per_page = 50
+    total = len(data)
 
-    items = fetch_news()
-    total = len(items)
-
-    start = 0
-    end = per_page
-    paginated_items = items[start:end]
-
+    paginated_items = data[:per_page]
     total_pages = (total + per_page - 1) // per_page
 
     return render_template_string(
@@ -362,7 +404,7 @@ def manual_fetch_route():
 
 @app.route("/download-excel")
 def download_excel():
-    items = fetch_news()
+    items = get_news()
     if not items:
         return "No data available", 400
 
@@ -378,6 +420,7 @@ def download_excel():
         download_name="stablecoin_news.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 
 
