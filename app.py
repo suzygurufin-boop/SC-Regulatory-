@@ -4,6 +4,9 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus, urlparse
+import pandas as pd
+from flask import send_file
+from io import BytesIO
 
 try:
 	import tldextract
@@ -56,7 +59,6 @@ TABLE_TEMPLATE = """
 		background-color: #f5f5f5;
 	  }
 	  h1 { color: #333; }
-	  .controls <a href="/download-excel">Download Excel</a>
 	  .controls { margin-bottom: 20px; }
 	  .controls a { 
 		display: inline-block;
@@ -133,6 +135,7 @@ TABLE_TEMPLATE = """
 	  <a href="/">Home</a>
 	  <a href="/fetch">Run Fetch</a>
 	  <a href="/api/news">JSON API</a>
+	  <a href="/download-excel">Download Excel</a>
 	</div>
 	
 	{% if items %}
@@ -167,6 +170,17 @@ TABLE_TEMPLATE = """
 		  {% endfor %}
 		</tbody>
 	  </table>
+	  <div style="margin-top:20px;">
+  {% if page > 1 %}
+    <a href="/news-table?page={{ page-1 }}">Previous</a>
+  {% endif %}
+
+  Page {{ page }} of {{ total_pages }}
+
+  {% if page < total_pages %}
+    <a href="/news-table?page={{ page+1 }}">Next</a>
+  {% endif %}
+</div>
 	{% else %}
 	  <div class="no-items">
 		<p>No items found for the last 24 hours.</p>
@@ -297,8 +311,24 @@ def index():
 
 @app.route("/news-table")
 def news_table():
-	items = fetch_news()
-	return render_template_string(TABLE_TEMPLATE, items=items)
+    page = int(request.args.get("page", 1))
+    per_page = 50
+
+    items = fetch_news()
+    total = len(items)
+
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated_items = items[start:end]
+
+    total_pages = (total + per_page - 1) // per_page
+
+    return render_template_string(
+        TABLE_TEMPLATE,
+        items=paginated_items,
+        page=page,
+        total_pages=total_pages
+    )
 
 
 @app.route("/api/news")
@@ -308,10 +338,46 @@ def api_news():
 
 
 @app.route("/fetch")
+@app.route("/fetch")
 def manual_fetch_route():
-	items = fetch_news()
-	return render_template_string (TABLE_TEMPLATE, items=items)
+    page = 1
+    per_page = 50
 
+    items = fetch_news()
+    total = len(items)
+
+    start = 0
+    end = per_page
+    paginated_items = items[start:end]
+
+    total_pages = (total + per_page - 1) // per_page
+
+    return render_template_string(
+        TABLE_TEMPLATE,
+        items=paginated_items,
+        page=page,
+        total_pages=total_pages
+    )
+
+
+@app.route("/download-excel")
+def download_excel():
+    items = fetch_news()
+    if not items:
+        return "No data available", 400
+
+    df = pd.DataFrame(items)
+
+    output = BytesIO()
+    df.to_excel(output, index=False, engine="openpyxl")
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="stablecoin_news.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 
