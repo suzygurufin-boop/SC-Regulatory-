@@ -231,7 +231,7 @@ def get_news():
     now = time.time()
 
     # if exists and not expired
-   if CACHE["data"] and (now - CACHE["timestamp"] < CACHE_DURATION):
+    if CACHE["data"] and (now - CACHE["timestamp"] < CACHE_DURATION):
         return CACHE["data"]
 
     # otherwise fetch new data
@@ -418,6 +418,7 @@ def download_excel():
         download_name="stablecoin_news.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 
 
