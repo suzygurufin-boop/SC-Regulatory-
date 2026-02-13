@@ -253,50 +253,46 @@ def canonicalize_item(entry):
 
 
 def fetch_news():
-	queries = [
-		"stablecoin regulation",
-		"stablecoin announcement",
-		"stablecoin guidance",
-		"stablecoin law",
-		"stablecoin ban",
-		"stablecoin oversight",
-	]
+    queries = [
+        "stablecoin regulation",
+        "stablecoin announcement",
+        "stablecoin guidance",
+        "stablecoin law",
+        "stablecoin ban",
+        "stablecoin oversight",
+    ]
 
-	items = []
-	seen_links = set()
-	now = _now_utc()
-	cutoff = now - timedelta(hours=24)
+    items = []
+    seen_links = set()
+    now = _now_utc()
+    cutoff = now - timedelta(hours=24)
 
-	for q in queries:
-		feed = fetch_google_news_rss(q)
-		if not feed or not getattr(feed, "entries", None):
-			continue
-		for entry in feed.entries:
-			if hasattr(entry, "published_parsed") and entry.published_parsed:
-				published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-			else:
-				published = now
+    for q in queries:
+        feed = fetch_google_news_rss(q)
+        if not feed or not getattr(feed, "entries", None):
+            continue
 
-			if published < cutoff:
-				continue
+        for entry in feed.entries:
+            if hasattr(entry, "published_parsed") and entry.published_parsed:
+                published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+            else:
+                published = now
 
-			link = entry.get("link", "")
-			if not link or link in seen_links:
-				continue
-			seen_links.add(link)
+            if published < cutoff:
+                continue
 
-			item = canonicalize_item(entry)
-			items.append(item)
+            link = entry.get("link", "")
+            if not link or link in seen_links:
+                continue
 
-	items.sort(key=lambda x: x.get("published", ""), reverse=True)
+            seen_links.add(link)
+            items.append(canonicalize_item(entry))
 
-	with open(DATA_FILE, "w", encoding="utf-8") as f:
-		json.dump(items, f, ensure_ascii=False, indent=2)
-
-	return items
+    items.sort(key=lambda x: x.get("published", ""), reverse=True)
+    return items
 
 
-def load_news():
+def fetch_news():
 	if not os.path.exists(DATA_FILE):
 		return []
 	with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -308,19 +304,19 @@ def load_news():
 
 @app.route("/")
 def index():
-	items = load_news()
+	items = fetch_news()
 	return render_template_string(TEMPLATE, items=items)
 
 
 @app.route("/news-table")
 def news_table():
-	items = load_news()
+	items = fetch_news()
 	return render_template_string(TABLE_TEMPLATE, items=items)
 
 
 @app.route("/api/news")
 def api_news():
-	items = load_news()
+	items = fetch_news()
 	return jsonify(items)
 
 
@@ -330,18 +326,6 @@ def manual_fetch_route():
 	return render_template_string (TABLE_TEMPLATE, items=items)
 
 
-if __name__ == "__main__":
-	# ensure data file exists
-	if not os.path.exists(DATA_FILE):
-		with open(DATA_FILE, "w", encoding="utf-8") as f:
-			json.dump([], f)
 
-	# perform an initial fetch
-	try:
-		fetch_news()
-	except Exception:
-		pass
-
-	app.run(host="0.0.0.0", port=5000)
 
 
