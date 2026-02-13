@@ -230,7 +230,7 @@ COUNTRIES = [
 def get_news():
     now = time.time()
 
-    # if  exists and not expired
+    # if exists and not expired
    if CACHE["data"] and (now - CACHE["timestamp"] < CACHE_DURATION):
         return CACHE["data"]
 
@@ -342,14 +342,11 @@ def fetch_news():
 
 @app.route("/")
 def index():
-	items = get_news()
-	return render_template_string(
-    TABLE_TEMPLATE,
-    items=paginated_items,
-    page=page,
-    total_pages=total_pages,
-    last_updated=get_last_updated()
-)
+    items = get_news()
+    return render_template_string(
+        TEMPLATE,
+        items=items
+    )
 
 @app.route("/news-table")
 def news_table():
@@ -395,11 +392,12 @@ def manual_fetch_route():
     total_pages = (total + per_page - 1) // per_page
 
     return render_template_string(
-        TABLE_TEMPLATE,
-        items=paginated_items,
-        page=page,
-        total_pages=total_pages
-    )
+    TABLE_TEMPLATE,
+    items=paginated_items,
+    page=page,
+    total_pages=total_pages,
+    last_updated=get_last_updated()
+)
 
 
 @app.route("/download-excel")
@@ -420,6 +418,7 @@ def download_excel():
         download_name="stablecoin_news.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 
 
