@@ -10,9 +10,6 @@ try:
 except Exception:
 	tldextract = None
 
-APP_DIR = os.path.dirname(__file__)
-DATA_FILE = os.path.join(APP_DIR, "news.json")
-
 app = Flask(__name__)
 
 TEMPLATE = """
@@ -291,17 +288,6 @@ def fetch_news():
     items.sort(key=lambda x: x.get("published", ""), reverse=True)
     return items
 
-
-def fetch_news():
-	if not os.path.exists(DATA_FILE):
-		return []
-	with open(DATA_FILE, "r", encoding="utf-8") as f:
-		try:
-			return json.load(f)
-		except Exception:
-			return []
-
-
 @app.route("/")
 def index():
 	items = fetch_news()
@@ -324,6 +310,7 @@ def api_news():
 def manual_fetch_route():
 	items = fetch_news()
 	return render_template_string (TABLE_TEMPLATE, items=items)
+
 
 
 
