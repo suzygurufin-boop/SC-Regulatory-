@@ -56,6 +56,7 @@ TABLE_TEMPLATE = """
 		background-color: #f5f5f5;
 	  }
 	  h1 { color: #333; }
+	  .controls <a href="/download-excel">Download Excel</a>
 	  .controls { margin-bottom: 20px; }
 	  .controls a { 
 		display: inline-block;
@@ -157,7 +158,7 @@ TABLE_TEMPLATE = """
 				</a>
 			  </td>
 			  <td>
-				<span class="published">{{ item.published[:10] }}</span>
+				<span class="published">{{ item.published.replace('T',' ')[:16] }}</span>
 			  </td>
 			  <td>
 				<small>{{ item.link[:40] }}...</small>
@@ -310,6 +311,7 @@ def api_news():
 def manual_fetch_route():
 	items = fetch_news()
 	return render_template_string (TABLE_TEMPLATE, items=items)
+
 
 
 
