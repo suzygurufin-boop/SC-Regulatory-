@@ -252,7 +252,7 @@ def canonicalize_item(entry):
 	}
 
 
-def fetch_and_save():
+def fetch_news():
 	queries = [
 		"stablecoin regulation",
 		"stablecoin announcement",
@@ -326,8 +326,8 @@ def api_news():
 
 @app.route("/fetch")
 def manual_fetch_route():
-	items = fetch_and_save()
-	return jsonify({"fetched": len(items)})
+	items = fetch_news()
+	return render_template_string (TABLE_TEMPLATE, items=items)
 
 
 if __name__ == "__main__":
@@ -338,9 +338,10 @@ if __name__ == "__main__":
 
 	# perform an initial fetch
 	try:
-		fetch_and_save()
+		fetch_news()
 	except Exception:
 		pass
 
 	app.run(host="0.0.0.0", port=5000)
+
 
